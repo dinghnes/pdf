@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF 全能工具箱 (合併/拆分/轉圖片)</title>
-    <!-- 1. 核心引擎：pdf-lib (用於合併/拆分) -->
-    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <title>PDF 全能工具箱 (視覺化拆分版)</title>
+    <!-- 1. 核心引擎：pdf-lib (更換為 cdnjs 以提高穩定性) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <!-- 2. 壓縮工具：JSZip (用於打包下載) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- 3. 渲染引擎：pdf.js (用於 PDF 轉圖片) -->
+    <!-- 3. 渲染引擎：pdf.js (用於 PDF 轉圖片與視覺化預覽) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     
     <script>
@@ -40,7 +40,7 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             text-align: center;
             width: 100%;
-            max-width: 600px;
+            max-width: 800px; /* 加寬以容納更多縮圖 */
         }
 
         h1 { color: #333; margin-bottom: 1rem; }
@@ -56,7 +56,7 @@
         .tab-btn {
             background: none;
             border: none;
-            padding: 10px 15px; /*稍微縮小間距以容納三個按鈕*/
+            padding: 10px 15px;
             font-size: 1rem;
             font-weight: bold;
             color: #888;
@@ -72,9 +72,7 @@
             border-bottom: 2px solid #007bff;
         }
 
-        .tab-btn:hover:not(.active) {
-            color: #555;
-        }
+        .tab-btn:hover:not(.active) { color: #555; }
 
         /* 通用樣式 */
         .input-group {
@@ -153,13 +151,16 @@
         button.action-btn:hover { background-color: #0056b3; }
         button.action-btn:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        /* 預覽區 (合併模式) */
-        #preview-area {
+        /* 預覽區 (合併模式 & 拆分模式共用 Grid) */
+        .grid-area {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
             gap: 15px;
             margin-top: 20px;
             min-height: 50px;
+            max-height: 500px; /* 拆分模式頁數多時可捲動 */
+            overflow-y: auto;
+            padding: 5px;
         }
 
         .preview-item {
@@ -168,31 +169,56 @@
             border: 1px solid #ddd;
             border-radius: 8px;
             padding: 5px;
-            cursor: move;
+            cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
+
+        .preview-item:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
         .preview-item.dragging { opacity: 0.5; border: 2px dashed #007bff; }
-        .preview-item img { width: 100%; height: 100px; object-fit: cover; border-radius: 4px; pointer-events: none; }
         
+        .preview-item img { 
+            width: 100%; 
+            height: 140px; 
+            object-fit: contain; 
+            border-radius: 4px; 
+            background-color: #f0f0f0;
+            pointer-events: none; 
+        }
+        
+        /* PDF Icon 樣式 */
         .preview-item .pdf-icon {
-            width: 100%; height: 100px; display: flex; flex-direction: column;
+            width: 100%; height: 140px; display: flex; flex-direction: column;
             justify-content: center; align-items: center;
             background-color: #fce4ec; color: #d32f2f; border-radius: 4px; font-weight: bold;
         }
         
         .preview-item .file-name {
             font-size: 10px; color: #666; margin-top: 4px;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100px;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center;
         }
 
         .remove-btn {
-            position: absolute; top: -8px; right: -8px;
+            position: absolute; top: -5px; right: -5px;
             background: #ff4d4d; color: white; border: none; border-radius: 50%;
             width: 24px; height: 24px; line-height: 24px; text-align: center;
             cursor: pointer; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 2;
         }
 
-        .page-number { font-size: 12px; color: #666; margin-top: 5px; }
+        .page-badge { 
+            font-size: 12px; 
+            background: #eee;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 5px;
+            color: #333; 
+        }
 
         .status-msg { margin-top: 1rem; font-size: 0.9rem; color: #666; }
 
@@ -207,6 +233,17 @@
             margin-bottom: 10px;
             display: none;
         }
+
+        /* 拆分模式特定的提示文字 */
+        .split-hint {
+            background-color: #e3f2fd;
+            color: #0d47a1;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+            text-align: left;
+        }
     </style>
 </head>
 <body>
@@ -217,7 +254,7 @@
     <!-- 分頁切換 -->
     <div class="tabs">
         <button class="tab-btn active" onclick="switchTab('merge')">合併 PDF</button>
-        <button class="tab-btn" onclick="switchTab('split')">拆分 PDF</button>
+        <button class="tab-btn" onclick="switchTab('split')">拆分 / 編輯 PDF</button>
         <button class="tab-btn" onclick="switchTab('convert')">PDF 轉圖片</button>
     </div>
 
@@ -226,7 +263,7 @@
         <div class="input-group">
             <label for="mergeInput" class="custom-file-label">
                 📂 選擇圖片或 PDF 檔案<br>
-                <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(支援多檔混合合併)</span>
+                <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(支援多檔混合合併、拖曳排序)</span>
             </label>
             <input type="file" id="mergeInput" accept="image/*, .pdf" multiple onchange="handleMergeFiles(this.files)">
         </div>
@@ -255,40 +292,46 @@
             </div>
         </div>
 
-        <div id="preview-area"></div>
+        <div id="merge-preview-area" class="grid-area"></div>
 
         <button id="convertBtn" class="action-btn" onclick="generateMergedPDF()">開始合併並下載</button>
         <div id="merge-status" class="status-msg"></div>
     </div>
 
-    <!-- ================= 2. 拆分模式 (Split Mode) ================= -->
+    <!-- ================= 2. 拆分/編輯模式 (Split Mode) - Visual Editor ================= -->
     <div id="split-view" class="view-section">
-        <div class="input-group">
+        <div class="input-group" id="split-input-group">
             <label for="splitInput" class="custom-file-label">
                 ✂️ 選擇單個 PDF 檔案<br>
-                <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(用於拆分或提取頁面)</span>
+                <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(讀取並列出所有頁面，可自由刪除)</span>
             </label>
-            <input type="file" id="splitInput" accept=".pdf" onchange="handleSplitFile(this.files)">
+            <input type="file" id="splitInput" accept=".pdf" onchange="handleSplitFileVisual(this.files)">
         </div>
         
         <div id="split-file-name" class="selected-file-name"></div>
 
-        <div class="settings-group">
-            <div class="setting-item">
-                <label for="splitMode">⚙️ 拆分模式：</label>
-                <select id="splitMode" onchange="updateSplitUI()">
-                    <option value="all">拆分每一頁 (下載 ZIP 壓縮包)</option>
-                    <option value="range">提取指定頁面 (下載單一 PDF)</option>
-                </select>
+        <!-- 視覺化編輯區域 -->
+        <div id="split-editor-container" style="display: none;">
+            <div class="split-hint">
+                💡 <strong>操作說明：</strong> 下方列出了 PDF 的每一頁。請點擊頁面右上角的 <strong>紅色 X</strong> 刪除不要的頁面。剩下的頁面將會被匯出。
             </div>
             
-            <div class="setting-item" id="rangeInputGroup" style="display: none;">
-                <label for="pageRange">頁碼範圍 (例如: 1, 3-5, 8)：</label>
-                <input type="text" id="pageRange" placeholder="輸入頁碼，如: 1-5, 8">
-            </div>
-        </div>
+            <div id="split-visual-area" class="grid-area"></div>
 
-        <button id="splitBtn" class="action-btn" onclick="executeSplit()">執行拆分</button>
+            <div class="settings-group">
+                <div class="setting-item">
+                    <label for="splitOutputMode">💾 匯出方式：</label>
+                    <select id="splitOutputMode">
+                        <option value="merge_remaining">儲存為單一 PDF (合併剩餘頁面)</option>
+                        <option value="split_remaining">儲存為多個 PDF (拆分剩餘頁面)</option>
+                    </select>
+                </div>
+            </div>
+
+            <button id="splitBtn" class="action-btn" onclick="executeSplitVisual()">執行匯出</button>
+            <button class="action-btn" style="background-color: #6c757d; margin-top: 10px;" onclick="resetSplitView()">重新選擇檔案</button>
+        </div>
+        
         <div id="split-status" class="status-msg"></div>
     </div>
 
@@ -329,7 +372,23 @@
 </div>
 
 <script>
-    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+    // 檢查 PDFLib 是否已載入
+    const PDFLib = window.PDFLib;
+    if (!PDFLib) {
+        // 如果載入失敗，可以在這裡做簡單處理，但通常上面的 alert 會先觸發 (如果放 head script 之後)
+        // 這裡為了保險，先定義空物件避免下面報錯
+        console.error("PDFLib 未正確載入");
+    }
+
+    // 安全地解構，如果 PDFLib 是 undefined 則使用空物件
+    const { PDFDocument, rgb, StandardFonts } = PDFLib || {};
+
+    // 檢查是否所有必要的程式庫都已載入
+    window.addEventListener('load', () => {
+        if (!window.PDFLib) {
+            alert("錯誤：無法載入 PDF 處理核心 (pdf-lib)。\n請檢查您的網路連線，或嘗試重新整理頁面。");
+        }
+    });
     
     // 全域變數
     let currentSplitFile = null;
@@ -356,17 +415,17 @@
     // ==========================================
     // 1. 合併模式邏輯
     // ==========================================
-    const previewArea = document.getElementById('preview-area');
+    const mergePreviewArea = document.getElementById('merge-preview-area');
     let dragSrcEl = null;
 
     function handleMergeFiles(files) {
         if (!files.length) return;
-        Array.from(files).forEach(file => createPreviewItem(file));
+        Array.from(files).forEach(file => createMergePreviewItem(file));
         document.getElementById('mergeInput').value = '';
         updateOrderNumbers();
     }
 
-    function createPreviewItem(file) {
+    function createMergePreviewItem(file) {
         const div = document.createElement('div');
         div.className = 'preview-item';
         div.draggable = true;
@@ -396,13 +455,13 @@
         btn.onclick = function() { div.remove(); updateOrderNumbers(); };
 
         const pageNum = document.createElement('div');
-        pageNum.className = 'page-number';
+        pageNum.className = 'page-badge';
         pageNum.innerText = 'Item';
 
         div.appendChild(btn);
         div.appendChild(pageNum);
         addDragEvents(div);
-        previewArea.appendChild(div);
+        mergePreviewArea.appendChild(div);
     }
 
     function addDragEvents(item) {
@@ -417,12 +476,10 @@
             e.dataTransfer.dropEffect = 'move';
             return false;
         });
-        item.addEventListener('dragenter', function() { this.classList.add('over'); });
-        item.addEventListener('dragleave', function() { this.classList.remove('over'); });
         item.addEventListener('drop', function(e) {
             if (e.stopPropagation) e.stopPropagation();
             if (dragSrcEl !== this) {
-                const items = Array.from(previewArea.children);
+                const items = Array.from(mergePreviewArea.children);
                 if (items.indexOf(dragSrcEl) < items.indexOf(this)) { this.after(dragSrcEl); } 
                 else { this.before(dragSrcEl); }
             }
@@ -430,19 +487,20 @@
         });
         item.addEventListener('dragend', function() {
             this.classList.remove('dragging');
-            document.querySelectorAll('.preview-item').forEach(i => i.classList.remove('over'));
             updateOrderNumbers();
         });
     }
 
     function updateOrderNumbers() {
-        document.querySelectorAll('.preview-item .page-number').forEach((item, index) => {
+        document.querySelectorAll('#merge-preview-area .preview-item .page-badge').forEach((item, index) => {
             item.innerText = `順序 ${index + 1}`;
         });
     }
 
     async function generateMergedPDF() {
-        const items = document.querySelectorAll('.preview-item');
+        if (!PDFLib) { alert("PDF 核心庫未載入，請重新整理頁面"); return; }
+        
+        const items = document.querySelectorAll('#merge-preview-area .preview-item');
         const status = document.getElementById('merge-status');
         const btn = document.getElementById('convertBtn');
         const pageSizeMode = document.getElementById('pageSize').value;
@@ -508,68 +566,145 @@
     }
 
     // ==========================================
-    // 2. 拆分模式邏輯
+    // 2. 拆分/編輯模式 (Visual Editor) - NEW Logic
     // ==========================================
-    function handleSplitFile(files) {
+    
+    // 處理檔案選擇與視覺化渲染
+    async function handleSplitFileVisual(files) {
         if (!files.length) return;
         currentSplitFile = files[0];
-        const nameDisplay = document.getElementById('split-file-name');
-        nameDisplay.style.display = 'block';
-        nameDisplay.innerText = `已選擇檔案: ${currentSplitFile.name}`;
-    }
-
-    function updateSplitUI() {
-        const mode = document.getElementById('splitMode').value;
-        document.getElementById('rangeInputGroup').style.display = (mode === 'range') ? 'flex' : 'none';
-    }
-
-    async function executeSplit() {
-        const status = document.getElementById('split-status');
-        const btn = document.getElementById('splitBtn');
-        const mode = document.getElementById('splitMode').value;
-
-        if (!currentSplitFile) { alert("請先選擇一個 PDF 檔案！"); return; }
         
-        btn.disabled = true; btn.innerText = "處理中..."; status.innerText = "讀取 PDF 中...";
-
+        const status = document.getElementById('split-status');
+        const visualArea = document.getElementById('split-visual-area');
+        const editorContainer = document.getElementById('split-editor-container');
+        const inputGroup = document.getElementById('split-input-group');
+        
+        status.innerText = "正在讀取 PDF 頁面...";
+        visualArea.innerHTML = ''; // 清空舊內容
+        
         try {
             const arrayBuffer = await currentSplitFile.arrayBuffer();
+            const loadingTask = pdfjsLib.getDocument(arrayBuffer);
+            const pdf = await loadingTask.promise;
+            const totalPages = pdf.numPages;
+            
+            // 隱藏上傳區，顯示編輯區
+            inputGroup.style.display = 'none';
+            editorContainer.style.display = 'block';
+            document.getElementById('split-file-name').innerText = `編輯檔案: ${currentSplitFile.name} (共 ${totalPages} 頁)`;
+
+            // 依序渲染每一頁的縮圖
+            for (let i = 1; i <= totalPages; i++) {
+                status.innerText = `正在渲染預覽圖: ${i} / ${totalPages}`;
+                
+                const page = await pdf.getPage(i);
+                // 使用較小的 scale 以加快預覽速度
+                const viewport = page.getViewport({ scale: 0.3 });
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                
+                const imgDataUrl = canvas.toDataURL();
+                createSplitVisualItem(imgDataUrl, i);
+            }
+            
+            status.innerText = "預覽載入完成。";
+
+        } catch (error) {
+            console.error(error);
+            alert("讀取 PDF 失敗: " + error.message);
+            resetSplitView();
+        }
+    }
+
+    // 建立單個頁面的視覺元件
+    function createSplitVisualItem(imgSrc, pageNum) {
+        const div = document.createElement('div');
+        div.className = 'preview-item';
+        // 儲存原始頁碼索引 (0-based for pdf-lib)
+        div.dataset.pageIndex = pageNum - 1;
+        div.dataset.displayNum = pageNum;
+
+        const img = document.createElement('img');
+        img.src = imgSrc;
+        
+        const btn = document.createElement('button');
+        btn.className = 'remove-btn';
+        btn.innerHTML = '×';
+        btn.onclick = function(e) { 
+            e.stopPropagation(); // 避免觸發 div 點擊
+            div.remove(); 
+            // 可以在此更新狀態文字，例如「剩餘 X 頁」
+        };
+
+        const badge = document.createElement('div');
+        badge.className = 'page-badge';
+        badge.innerText = `第 ${pageNum} 頁`;
+
+        div.appendChild(btn);
+        div.appendChild(img);
+        div.appendChild(badge);
+        
+        document.getElementById('split-visual-area').appendChild(div);
+    }
+
+    // 執行匯出 (根據剩餘的 DOM 元素)
+    async function executeSplitVisual() {
+        if (!PDFLib) { alert("PDF 核心庫未載入，請重新整理頁面"); return; }
+        
+        const status = document.getElementById('split-status');
+        const btn = document.getElementById('splitBtn');
+        const mode = document.getElementById('splitOutputMode').value;
+        const visualItems = document.querySelectorAll('#split-visual-area .preview-item');
+
+        if (visualItems.length === 0) { alert("沒有剩餘的頁面可以匯出！"); return; }
+        
+        btn.disabled = true; btn.innerText = "處理中..."; 
+        status.innerText = "正在處理...";
+
+        try {
+            // 從 DOM 取得剩餘的頁碼索引
+            const indicesToKeep = Array.from(visualItems).map(item => parseInt(item.dataset.pageIndex));
+            
+            const arrayBuffer = await currentSplitFile.arrayBuffer();
             const srcPdf = await PDFDocument.load(arrayBuffer);
-            const totalPages = srcPdf.getPageCount();
+            const fileNameBase = currentSplitFile.name.replace('.pdf', '');
 
-            if (mode === 'all') {
-                status.innerText = `正在拆分 ${totalPages} 頁，請稍候...`;
-                const zip = new JSZip();
-
-                for (let i = 0; i < totalPages; i++) {
-                    const newPdf = await PDFDocument.create();
-                    const [copiedPage] = await newPdf.copyPages(srcPdf, [i]);
-                    newPdf.addPage(copiedPage);
-                    const pdfBytes = await newPdf.save();
-                    
-                    const name = currentSplitFile.name.replace('.pdf', '') + `_page_${i + 1}.pdf`;
-                    zip.file(name, pdfBytes);
-                }
-
-                status.innerText = "正在打包 ZIP...";
-                const zipContent = await zip.generateAsync({ type: "blob" });
-                downloadBlob(zipContent, "split-pages.zip");
-                status.innerText = "拆分完成！ZIP 已下載。";
-
-            } else {
-                const rangeStr = document.getElementById('pageRange').value;
-                if (!rangeStr) { throw new Error("請輸入頁碼範圍"); }
-
-                const indicesToKeep = parsePageRange(rangeStr, totalPages);
-                if (indicesToKeep.length === 0) { throw new Error("無效的頁碼範圍或頁碼超出範圍"); }
-
+            if (mode === 'merge_remaining') {
+                // 模式 1: 合併剩餘頁面為單一 PDF
                 const newPdf = await PDFDocument.create();
                 const copiedPages = await newPdf.copyPages(srcPdf, indicesToKeep);
                 copiedPages.forEach(page => newPdf.addPage(page));
 
                 const pdfBytes = await newPdf.save();
-                downloadBlob(new Blob([pdfBytes], { type: 'application/pdf' }), "extracted-pages.pdf");
-                status.innerText = `提取完成！已輸出 ${indicesToKeep.length} 頁。`;
+                downloadBlob(new Blob([pdfBytes], { type: 'application/pdf' }), `${fileNameBase}_edited.pdf`);
+                status.innerText = `匯出完成！共 ${indicesToKeep.length} 頁。`;
+
+            } else {
+                // 模式 2: 拆分剩餘頁面 (ZIP)
+                const zip = new JSZip();
+                
+                for (let i = 0; i < indicesToKeep.length; i++) {
+                    const originalIndex = indicesToKeep[i];
+                    // 顯示的頁碼 (originalIndex + 1)
+                    const displayNum = originalIndex + 1;
+                    
+                    const newPdf = await PDFDocument.create();
+                    const [copiedPage] = await newPdf.copyPages(srcPdf, [originalIndex]);
+                    newPdf.addPage(copiedPage);
+                    const pdfBytes = await newPdf.save();
+                    
+                    zip.file(`${fileNameBase}_page_${displayNum}.pdf`, pdfBytes);
+                }
+
+                status.innerText = "正在打包 ZIP...";
+                const zipContent = await zip.generateAsync({ type: "blob" });
+                downloadBlob(zipContent, `${fileNameBase}_pages.zip`);
+                status.innerText = "匯出完成！ZIP 已下載。";
             }
 
         } catch (error) {
@@ -577,12 +712,22 @@
             alert("處理失敗: " + error.message);
             status.innerText = "發生錯誤";
         } finally {
-            btn.disabled = false; btn.innerText = "執行拆分";
+            btn.disabled = false; btn.innerText = "執行匯出";
         }
     }
 
+    function resetSplitView() {
+        currentSplitFile = null;
+        document.getElementById('split-input-group').style.display = 'block';
+        document.getElementById('split-editor-container').style.display = 'none';
+        document.getElementById('split-visual-area').innerHTML = '';
+        document.getElementById('split-file-name').innerText = '';
+        document.getElementById('splitInput').value = ''; // 清空 input 以便重選同檔
+        document.getElementById('split-status').innerText = '';
+    }
+
     // ==========================================
-    // 3. 轉圖片模式邏輯 (PDF to Image) - NEW
+    // 3. 轉圖片模式邏輯
     // ==========================================
     function handleConvertFile(files) {
         if (!files.length) return;
@@ -618,30 +763,19 @@
             for (let i = 1; i <= totalPages; i++) {
                 status.innerText = `正在轉換第 ${i} / ${totalPages} 頁...`;
                 
-                // 1. 取得頁面
                 const page = await pdf.getPage(i);
-                
-                // 2. 設定視窗大小與縮放
                 const viewport = page.getViewport({ scale: scale });
                 
-                // 3. 準備 Canvas
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d');
                 canvas.height = viewport.height;
                 canvas.width = viewport.width;
 
-                // 4. 渲染頁面到 Canvas
-                const renderContext = {
-                    canvasContext: context,
-                    viewport: viewport
-                };
-                await page.render(renderContext).promise;
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
 
-                // 5. 將 Canvas 轉為 Blob (圖片檔案)
                 const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
-                const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType, 0.9)); // 0.9 是 JPG 品質
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, mimeType, 0.9));
                 
-                // 6. 加入 ZIP
                 const ext = format === 'jpeg' ? 'jpg' : 'png';
                 const imgName = `${fileNameBase}_page_${i}.${ext}`;
                 zip.file(imgName, blob);
@@ -664,24 +798,6 @@
     // ==========================================
     // 4. 通用輔助函式
     // ==========================================
-    function parsePageRange(rangeStr, maxPages) {
-        const pages = new Set();
-        const parts = rangeStr.split(/[,，]/);
-        parts.forEach(part => {
-            part = part.trim();
-            if (part.includes('-')) {
-                const [start, end] = part.split('-').map(Number);
-                if (!isNaN(start) && !isNaN(end)) {
-                    for (let i = start; i <= end; i++) pages.add(i);
-                }
-            } else {
-                const p = parseInt(part);
-                if (!isNaN(p)) pages.add(p);
-            }
-        });
-        return Array.from(pages).filter(p => p >= 1 && p <= maxPages).map(p => p - 1).sort((a, b) => a - b);
-    }
-
     function readFileAsDataURL(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
