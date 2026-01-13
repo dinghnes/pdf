@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF 合併與圖片轉檔工具</title>
+    <!-- 核心引擎更換為 pdf-lib -->
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        h1 { color: #333; margin-bottom: 1.5rem; }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+            text-align: center;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            transition: border-color 0.3s;
+        }
+
+        .input-group:hover { border-color: #007bff; }
+
+        input[type="file"] { display: none; }
+
+        .custom-file-label {
+            cursor: pointer;
+            color: #007bff;
+            font-weight: bold;
+            display: block;
+        }
+        
+        .settings-group {
+            margin: 15px 0;
+            text-align: left;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            display: grid;
+            gap: 15px;
+        }
+        
+        .setting-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .setting-item label {
+            font-weight: bold;
+            color: #555;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .setting-item select {
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            flex-grow: 1;
+            max-width: 250px;
+        }
+
+        .setting-item input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        #preview-area {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+            min-height: 50px;
+        }
+
+        .preview-item {
+            position: relative;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 5px;
+            cursor: move;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .preview-item:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .preview-item.dragging {
+            opacity: 0.5;
+            border: 2px dashed #007bff;
+        }
+
+        .preview-item img {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+
+        /* PDF 圖示樣式 */
+        .preview-item .pdf-icon {
+            width: 100%;
+            height: 100px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background-color: #fce4ec;
+            color: #d32f2f;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .preview-item .file-name {
+            font-size: 10px;
+            color: #666;
+            margin-top: 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            width: 100px;
+        }
+
+        .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            line-height: 24px;
+            text-align: center;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 2;
+        }
+
+        .page-number {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        #status { margin-top: 1rem; font-size: 0.9rem; color: #666; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>PDF 合併與轉檔工具</h1>
+    
+    <div class="input-group">
+        <label for="imageInput" class="custom-file-label">
+            📂 選擇圖片或 PDF 檔案<br>
+            <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(支援 JPG, PNG, PDF 混合合併)</span>
+        </label>
+        <!-- 增加 accept .pdf -->
+        <input type="file" id="imageInput" accept="image/*, .pdf" multiple onchange="handleFiles(this.files)">
+    </div>
+
+    <div class="settings-group">
+        <div class="setting-item">
+            <label for="pageSize">📄 圖片頁面大小：</label>
+            <select id="pageSize">
+                <option value="original" selected>依照圖片原尺寸 (無留白)</option>
+                <option value="a4">A4 標準紙張 (可能會有白邊)</option>
+            </select>
+        </div>
+        <div class="setting-item">
+            <label for="quality">🗜️ 圖片壓縮品質：</label>
+            <select id="quality">
+                <option value="0.95" selected>高畫質 (檔案較大)</option>
+                <option value="0.75">標準壓縮 (建議使用)</option>
+                <option value="0.5">高壓縮 (檔案最小)</option>
+                <option value="0.3">極限壓縮 (畫質較差)</option>
+            </select>
+        </div>
+        <div class="setting-item">
+            <label for="showPageNumbers" style="cursor: pointer;">
+                🔢 顯示頁碼 (1/N)：
+            </label>
+            <input type="checkbox" id="showPageNumbers">
+        </div>
+    </div>
+
+    <div id="preview-area"></div>
+
+    <button id="convertBtn" onclick="generatePDF()">開始合併並下載</button>
+    <div id="status"></div>
+</div>
+
+<script>
+    // 引入 PDFLib
+    const { PDFDocument, rgb, StandardFonts } = PDFLib;
+    const previewArea = document.getElementById('preview-area');
+    let dragSrcEl = null;
+
+    function handleFiles(files) {
+        if (!files.length) return;
+        Array.from(files).forEach(file => {
+            createPreviewItem(file);
+        });
+        document.getElementById('imageInput').value = '';
+        updateOrderNumbers();
+    }
+
+    function createPreviewItem(file) {
+        const div = document.createElement('div');
+        div.className = 'preview-item';
+        div.draggable = true;
+        div.fileData = file;
+
+        // 判斷是否為 PDF
+        if (file.type === 'application/pdf') {
+            const pdfIcon = document.createElement('div');
+            pdfIcon.className = 'pdf-icon';
+            pdfIcon.innerHTML = '<span>PDF</span>';
+            div.appendChild(pdfIcon);
+        } else {
+            const img = document.createElement('img');
+            const reader = new FileReader();
+            reader.onload = (e) => { img.src = e.target.result; };
+            reader.readAsDataURL(file);
+            div.appendChild(img);
+        }
+
+        // 顯示檔名方便辨識
+        const fileName = document.createElement('div');
+        fileName.className = 'file-name';
+        fileName.innerText = file.name;
+        div.appendChild(fileName);
+
+        const btn = document.createElement('button');
+        btn.className = 'remove-btn';
+        btn.innerHTML = '×';
+        btn.onclick = function() {
+            div.remove();
+            updateOrderNumbers();
+        };
+
+        const pageNum = document.createElement('div');
+        pageNum.className = 'page-number';
+        pageNum.innerText = 'Item';
+
+        div.appendChild(btn);
+        div.appendChild(pageNum);
+        
+        addDragEvents(div);
+        previewArea.appendChild(div);
+    }
+
+    function addDragEvents(item) {
+        item.addEventListener('dragstart', handleDragStart);
+        item.addEventListener('dragover', handleDragOver);
+        item.addEventListener('dragenter', handleDragEnter);
+        item.addEventListener('dragleave', handleDragLeave);
+        item.addEventListener('drop', handleDrop);
+        item.addEventListener('dragend', handleDragEnd);
+    }
+
+    function updateOrderNumbers() {
+        const items = document.querySelectorAll('.preview-item .page-number');
+        items.forEach((item, index) => {
+            item.innerText = `順序 ${index + 1}`;
+        });
+    }
+
+    function handleDragStart(e) {
+        this.classList.add('dragging');
+        dragSrcEl = this;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', this.innerHTML);
+    }
+
+    function handleDragOver(e) {
+        if (e.preventDefault) e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        return false;
+    }
+
+    function handleDragEnter(e) { this.classList.add('over'); }
+    function handleDragLeave(e) { this.classList.remove('over'); }
+
+    function handleDrop(e) {
+        if (e.stopPropagation) e.stopPropagation();
+        if (dragSrcEl !== this) {
+            const items = Array.from(previewArea.children);
+            const srcIndex = items.indexOf(dragSrcEl);
+            const targetIndex = items.indexOf(this);
+            if (srcIndex < targetIndex) { this.after(dragSrcEl); } 
+            else { this.before(dragSrcEl); }
+        }
+        return false;
+    }
+
+    function handleDragEnd() {
+        this.classList.remove('dragging');
+        const items = document.querySelectorAll('.preview-item');
+        items.forEach(item => item.classList.remove('over'));
+        updateOrderNumbers();
+    }
+
+    // --- 核心轉換邏輯 (PDF-Lib) ---
+    async function generatePDF() {
+        const items = document.querySelectorAll('.preview-item');
+        const status = document.getElementById('status');
+        const btn = document.getElementById('convertBtn');
+        
+        const pageSizeMode = document.getElementById('pageSize').value;
+        const quality = parseFloat(document.getElementById('quality').value);
+        const showPageNumbers = document.getElementById('showPageNumbers').checked;
+
+        if (items.length === 0) {
+            alert("請先選擇至少一個檔案！");
+            return;
+        }
+
+        btn.disabled = true;
+        btn.innerText = "處理中...";
+        status.innerText = `準備合併 ${items.length} 個項目...`;
+
+        try {
+            // 建立一個新的 PDF 文件
+            const pdfDoc = await PDFDocument.create();
+            
+            // 如果需要頁碼，先載入字體
+            let font;
+            if (showPageNumbers) {
+                font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+            }
+
+            for (let i = 0; i < items.length; i++) {
+                const file = items[i].fileData;
+                status.innerText = `正在處理項目 ${i + 1} / ${items.length} (${file.name})...`;
+
+                if (file.type === 'application/pdf') {
+                    // --- 處理 PDF 合併 ---
+                    const arrayBuffer = await file.arrayBuffer();
+                    const srcPdf = await PDFDocument.load(arrayBuffer);
+                    const copiedPages = await pdfDoc.copyPages(srcPdf, srcPdf.getPageIndices());
+                    copiedPages.forEach((page) => pdfDoc.addPage(page));
+                    
+                } else {
+                    // --- 處理圖片轉換 ---
+                    // 1. 讀取並轉為 JPEG ArrayBuffer (確保格式統一與壓縮)
+                    const rawData = await readFileAsDataURL(file);
+                    const imgObj = await loadImage(rawData);
+                    const { buffer: jpgBuffer, width, height } = await convertToJpegBuffer(imgObj, quality);
+
+                    // 2. 嵌入圖片
+                    const jpgImage = await pdfDoc.embedJpg(jpgBuffer);
+
+                    // 3. 計算頁面大小並加入
+                    let page;
+                    if (pageSizeMode === 'original') {
+                        // 原尺寸
+                        page = pdfDoc.addPage([width, height]);
+                        page.drawImage(jpgImage, {
+                            x: 0,
+                            y: 0,
+                            width: width,
+                            height: height,
+                        });
+                    } else {
+                        // A4 模式 (A4 = 595.28 x 841.89 points)
+                        const a4Width = 595.28;
+                        const a4Height = 841.89;
+                        const margin = 20; // 約 7mm
+                        
+                        page = pdfDoc.addPage([a4Width, a4Height]);
+                        
+                        const maxWidth = a4Width - (margin * 2);
+                        const maxHeight = a4Height - (margin * 2);
+                        
+                        // 計算縮放
+                        const imgDims = jpgImage.scaleToFit(maxWidth, maxHeight);
+                        
+                        page.drawImage(jpgImage, {
+                            x: margin,
+                            y: a4Height - margin - imgDims.height, // PDF 座標原點在左下角，所以要從上面算下來
+                            width: imgDims.width,
+                            height: imgDims.height,
+                        });
+                    }
+                }
+            }
+
+            // --- 統一加入頁碼 ---
+            if (showPageNumbers) {
+                status.innerText = "正在加入頁碼...";
+                const pages = pdfDoc.getPages();
+                const totalPages = pages.length;
+                
+                for (let idx = 0; idx < totalPages; idx++) {
+                    const page = pages[idx];
+                    const { width, height } = page.getSize();
+                    const text = `${idx + 1} / ${totalPages}`;
+                    const fontSize = 12;
+                    const textWidth = font.widthOfTextAtSize(text, fontSize);
+                    
+                    // 畫一個半透明背景框確保文字可見
+                    page.drawRectangle({
+                        x: (width / 2) - (textWidth / 2) - 5,
+                        y: 15, // 離底部距離
+                        width: textWidth + 10,
+                        height: fontSize + 10,
+                        color: rgb(1, 1, 1),
+                        opacity: 0.8,
+                    });
+
+                    page.drawText(text, {
+                        x: (width / 2) - (textWidth / 2),
+                        y: 20 + 2, // 微調垂直位置
+                        size: fontSize,
+                        font: font,
+                        color: rgb(0, 0, 0),
+                    });
+                }
+            }
+
+            // 儲存並下載
+            const pdfBytes = await pdfDoc.save();
+            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'merged-files.pdf';
+            link.click();
+            
+            status.innerText = "合併完成！檔案已下載。";
+
+        } catch (error) {
+            console.error(error);
+            status.innerText = "發生錯誤，請檢查檔案是否損毀。";
+            alert("處理失敗：" + error.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "開始合併並下載";
+        }
+    }
+
+    function readFileAsDataURL(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function loadImage(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = reject;
+            img.src = url;
+        });
+    }
+
+    // 將圖片轉為 JPEG ArrayBuffer (為了給 pdf-lib 使用)
+    function convertToJpegBuffer(img, quality) {
+        return new Promise((resolve) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+            
+            // toBlob 產生二進制資料
+            canvas.toBlob((blob) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    resolve({
+                        buffer: reader.result,
+                        width: img.width,
+                        height: img.height
+                    });
+                };
+                reader.readAsArrayBuffer(blob);
+            }, 'image/jpeg', quality);
+        });
+    }
+</script>
+
+</body>
+</html>
