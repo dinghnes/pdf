@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF 全能工具箱 (含圖片分割功能)</title>
-    <!-- 1. 核心引擎：pdf-lib (更換為 cdnjs 以提高穩定性) -->
+    <title>PDF 全能工具箱 (支援拖曳上傳)</title>
+    <!-- 1. 核心引擎：pdf-lib -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
-    <!-- 2. 壓縮工具：JSZip (用於打包下載) -->
+    <!-- 2. 壓縮工具：JSZip -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- 3. 渲染引擎：pdf.js (用於 PDF 轉圖片與視覺化預覽) -->
+    <!-- 3. 渲染引擎：pdf.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     
     <script>
@@ -17,6 +17,8 @@
             if (window.pdfjsLib) {
                 window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
             }
+            // 初始化拖放功能
+            initDragAndDrop();
         };
     </script>
 
@@ -49,7 +51,7 @@
         .tabs {
             display: flex;
             justify-content: center;
-            flex-wrap: wrap; /* 允許換行以適應小螢幕 */
+            flex-wrap: wrap;
             gap: 10px;
             margin-bottom: 20px;
             border-bottom: 2px solid #eee;
@@ -83,10 +85,19 @@
             padding: 20px;
             border: 2px dashed #ddd;
             border-radius: 8px;
-            transition: border-color 0.3s;
+            transition: all 0.3s; /* 增加過渡效果 */
+            position: relative; /* 為了拖曳覆蓋 */
         }
 
         .input-group:hover { border-color: #007bff; }
+
+        /* 拖曳時的樣式 */
+        .input-group.drag-over {
+            border-color: #007bff;
+            background-color: #f1f8ff;
+            transform: scale(1.02);
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.2);
+        }
 
         input[type="file"] { display: none; }
 
@@ -95,6 +106,11 @@
             color: #007bff;
             font-weight: bold;
             display: block;
+            pointer-events: none; /* 讓事件穿透到父層 div */
+        }
+        
+        .custom-file-label span {
+            pointer-events: none;
         }
         
         .settings-group {
@@ -261,9 +277,10 @@
 
     <!-- ================= 1. 合併模式 (Merge Mode) ================= -->
     <div id="merge-view" class="view-section active">
-        <div class="input-group">
+        <!-- 加入 ID 以便 JS 綁定拖曳事件 -->
+        <div class="input-group" id="merge-input-group">
             <label for="mergeInput" class="custom-file-label">
-                📂 選擇圖片或 PDF 檔案<br>
+                📂 選擇或拖曳圖片/PDF 到此處<br>
                 <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(支援多檔混合合併、拖曳排序)</span>
             </label>
             <input type="file" id="mergeInput" accept="image/*, .pdf" multiple onchange="handleMergeFiles(this.files)">
@@ -303,7 +320,7 @@
     <div id="split-view" class="view-section">
         <div class="input-group" id="split-input-group">
             <label for="splitInput" class="custom-file-label">
-                ✂️ 選擇單個 PDF 檔案<br>
+                ✂️ 選擇或拖曳單個 PDF 到此處<br>
                 <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(讀取並列出所有頁面，可自由刪除)</span>
             </label>
             <input type="file" id="splitInput" accept=".pdf" onchange="handleSplitFileVisual(this.files)">
@@ -336,11 +353,11 @@
         <div id="split-status" class="status-msg"></div>
     </div>
 
-    <!-- ================= 3. 圖片分割模式 (Image Split Mode) - NEW ================= -->
+    <!-- ================= 3. 圖片分割模式 (Image Split Mode) ================= -->
     <div id="img-split-view" class="view-section">
-        <div class="input-group">
+        <div class="input-group" id="img-split-input-group">
             <label for="imgSplitInput" class="custom-file-label">
-                📖 選擇圖片檔案 (JPG/PNG)<br>
+                📖 選擇或拖曳圖片 (JPG/PNG) 到此處<br>
                 <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(將一張橫向圖片切成兩頁 A4)</span>
             </label>
             <input type="file" id="imgSplitInput" accept="image/*" multiple onchange="handleImgSplitFiles(this.files)">
@@ -367,9 +384,9 @@
 
     <!-- ================= 4. 轉圖片模式 (Convert Mode) ================= -->
     <div id="convert-view" class="view-section">
-        <div class="input-group">
+        <div class="input-group" id="convert-input-group">
             <label for="convertInput" class="custom-file-label">
-                🖼️ 選擇單個 PDF 檔案<br>
+                🖼️ 選擇或拖曳單個 PDF 到此處<br>
                 <span style="font-size: 0.8rem; color: #999; font-weight: normal;">(將 PDF 轉成 JPG/PNG 圖片)</span>
             </label>
             <input type="file" id="convertInput" accept=".pdf" onchange="handleConvertFile(this.files)">
@@ -442,6 +459,55 @@
     }
 
     // ==========================================
+    // 0. 拖放初始化 (New)
+    // ==========================================
+    function initDragAndDrop() {
+        // 設定 4 個區域的拖放
+        setupDragAndDrop('merge-input-group', handleMergeFiles);
+        setupDragAndDrop('split-input-group', handleSplitFileVisual);
+        setupDragAndDrop('img-split-input-group', handleImgSplitFiles);
+        setupDragAndDrop('convert-input-group', handleConvertFile);
+    }
+
+    function setupDragAndDrop(areaId, handler) {
+        const area = document.getElementById(areaId);
+        if (!area) return;
+
+        // 防止瀏覽器預設行為
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            area.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // 視覺回饋：進入與離開
+        ['dragenter', 'dragover'].forEach(eventName => {
+            area.addEventListener(eventName, () => area.classList.add('drag-over'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            area.addEventListener(eventName, () => area.classList.remove('drag-over'), false);
+        });
+
+        // 處理放置
+        area.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handler(files);
+        }, false);
+        
+        // 點擊事件：如果點擊的是 div 但不是 input (雖然 input 蓋在上面，但以防萬一)
+        area.addEventListener('click', () => {
+             const input = area.querySelector('input[type="file"]');
+             if(input) input.click();
+        });
+    }
+
+
+    // ==========================================
     // 1. 合併模式邏輯
     // ==========================================
     const mergePreviewArea = document.getElementById('merge-preview-area');
@@ -481,7 +547,11 @@
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.innerHTML = '×';
-        btn.onclick = function() { div.remove(); updateOrderNumbers(); };
+        btn.onclick = function(e) { 
+            e.stopPropagation(); // 阻止冒泡
+            div.remove(); 
+            updateOrderNumbers(); 
+        };
 
         const pageNum = document.createElement('div');
         pageNum.className = 'page-badge';
@@ -731,7 +801,7 @@
     }
 
     // ==========================================
-    // 3. 圖片分割模式 (Image Split Mode) - NEW
+    // 3. 圖片分割模式 (Image Split Mode)
     // ==========================================
     const imgSplitPreviewArea = document.getElementById('img-split-preview-area');
     
@@ -754,7 +824,10 @@
             const btn = document.createElement('button');
             btn.className = 'remove-btn';
             btn.innerHTML = '×';
-            btn.onclick = function() { div.remove(); };
+            btn.onclick = function(e) { 
+                e.stopPropagation();
+                div.remove(); 
+            };
 
             div.appendChild(btn);
             div.appendChild(img);
@@ -797,7 +870,6 @@
                 canvasL.width = Math.floor(imgObj.width / 2);
                 canvasL.height = imgObj.height;
                 const ctxL = canvasL.getContext('2d');
-                // drawImage(img, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
                 ctxL.drawImage(imgObj, 0, 0, canvasL.width, canvasL.height, 0, 0, canvasL.width, canvasL.height);
                 
                 // 右半邊
