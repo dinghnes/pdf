@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF 全能工具箱 (含智能壓縮)</title>
+    <title>PDF 全能工具箱 (修復版)</title>
     <!-- 1. 核心引擎：pdf-lib -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
     <!-- 2. 壓縮工具：JSZip -->
@@ -393,7 +393,7 @@
         <div id="convert-status" class="status-msg"></div>
     </div>
 
-    <!-- ================= 5. 智能壓縮模式 (Smart Compress) - NEW ================= -->
+    <!-- ================= 5. 智能壓縮模式 (Smart Compress) ================= -->
     <div id="compress-view" class="view-section">
         <div class="input-group" id="compress-input-group">
             <label for="compressInput" class="custom-file-label">
@@ -468,137 +468,6 @@
         area.addEventListener('click', () => { const inp = area.querySelector('input'); if(inp) inp.click(); });
     }
 
-    // ================= 1. 合併邏輯 (簡化) =================
-    const mergePreviewArea = document.getElementById('merge-preview-area');
-    function handleMergeFiles(files) {
-        if (!files.length) return;
-        Array.from(files).forEach(file => createPreviewItem(file, mergePreviewArea));
-        document.getElementById('mergeInput').value = '';
-    }
-    // (createMergePreviewItem 等邏輯共用 createPreviewItem)
-
-    // ================= 5. 智能壓縮邏輯 (Smart Compress) =================
-    const compressFileList = document.getElementById('compress-file-list');
-    function handleCompressFiles(files) {
-        if(!files.length) return;
-        Array.from(files).forEach(file => createPreviewItem(file, compressFileList));
-        document.getElementById('compressInput').value = '';
-    }
-
-    async function executeSmartCompress() {
-        const items = document.querySelectorAll('#compress-file-list .preview-item');
-        const status = document.getElementById('compress-status');
-        const btn = document.getElementById('compressBtn');
-        const targetMB = parseFloat(document.getElementById('targetSizeMB').value);
-        
-        if (items.length === 0) { alert("請先選擇檔案！"); return; }
-        if (!targetMB || targetMB <= 0) { alert("請輸入有效的目標大小！"); return; }
-
-        const targetBytes = targetMB * 1024 * 1024;
-        btn.disabled = true; btn.innerText = "分析中...";
-        
-        try {
-            // 1. 收集所有頁面 (圖片或 PDF 頁)
-            let allPagesData = []; // { type: 'img', obj: Image } or similar
-            
-            for (let i = 0; i < items.length; i++) {
-                const file = items[i].fileData;
-                status.innerText = `正在讀取檔案 (${i+1}/${items.length}): ${file.name}...`;
-                
-                if (file.type === 'application/pdf') {
-                    // Rasterize PDF
-                    const buffer = await file.arrayBuffer();
-                    const pdf = await pdfjsLib.getDocument(buffer).promise;
-                    for (let p = 1; p <= pdf.numPages; p++) {
-                        const page = await pdf.getPage(p);
-                        const viewport = page.getViewport({ scale: 1.5 }); // 預設 1.5 倍清晰度
-                        const canvas = document.createElement('canvas');
-                        canvas.width = viewport.width; canvas.height = viewport.height;
-                        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                        const img = await loadImage(canvas.toDataURL());
-                        allPagesData.push(img);
-                    }
-                } else {
-                    const dataUrl = await readFileAsDataURL(file);
-                    const img = await loadImage(dataUrl);
-                    allPagesData.push(img);
-                }
-            }
-
-            status.innerText = `共收集到 ${allPagesData.length} 頁，開始智能壓縮...`;
-            
-            // 2. 迭代壓縮算法
-            let quality = 0.8; // 初始品質
-            let pdfBytes = null;
-            let finalSize = 0;
-            let attempts = 0;
-            const maxAttempts = 4;
-            
-            while (attempts < maxAttempts) {
-                attempts++;
-                status.innerText = `嘗試壓縮 (第 ${attempts} 次) - 品質參數: ${quality.toFixed(2)}...`;
-                
-                const pdfDoc = await PDFDocument.create();
-                
-                // 估算 JPEG 大小總和 (不生成完整 PDF 以加速)
-                let totalJpegSize = 0;
-                const jpegBuffers = [];
-
-                for (const img of allPagesData) {
-                    const { buffer } = await convertToJpegBuffer(img, quality);
-                    totalJpegSize += buffer.byteLength;
-                    jpegBuffers.push({ buffer, width: img.width, height: img.height });
-                }
-
-                // 加上 PDF overhead 估算 (每頁約 1KB + 基礎 5KB)
-                const estimatedSize = totalJpegSize + (jpegBuffers.length * 1024) + 5000;
-                
-                console.log(`Attempt ${attempts}: Q=${quality}, Est Size=${(estimatedSize/1024/1024).toFixed(2)}MB`);
-
-                // 如果估算大小已經合格，或者這是最後一次嘗試，則生成 PDF
-                if (estimatedSize <= targetBytes || attempts === maxAttempts) {
-                    for (const j of jpegBuffers) {
-                        const imgEmbed = await pdfDoc.embedJpg(j.buffer);
-                        const page = pdfDoc.addPage([j.width, j.height]);
-                        page.drawImage(imgEmbed, { x: 0, y: 0, width: j.width, height: j.height });
-                    }
-                    pdfBytes = await pdfDoc.save();
-                    finalSize = pdfBytes.byteLength;
-                    
-                    if (finalSize <= targetBytes) break; // 成功
-                }
-
-                // 調整品質參數
-                if (estimatedSize > targetBytes) {
-                    // 太大，降低品質
-                    const ratio = targetBytes / estimatedSize;
-                    quality = quality * ratio * 0.9; // 0.9 是安全係數
-                    if (quality < 0.1) quality = 0.1; // 最低品質
-                } else {
-                    // 已經夠小了 (在估算階段通過)，產生 PDF 退出
-                    // 上面的 if 區塊會處理生成
-                }
-            }
-
-            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-            const finalMB = (finalSize / 1024 / 1024).toFixed(2);
-            downloadBlob(blob, `compressed_target_${targetMB}MB.pdf`);
-            
-            if (finalSize > targetBytes) {
-                status.innerText = `已盡力壓縮！最終大小: ${finalMB} MB (已達畫質極限)。`;
-            } else {
-                status.innerText = `成功！最終大小: ${finalMB} MB。`;
-            }
-
-        } catch (e) {
-            console.error(e);
-            alert("壓縮失敗: " + e.message);
-            status.innerText = "發生錯誤";
-        } finally {
-            btn.disabled = false; btn.innerText = "開始智能壓縮";
-        }
-    }
-
     // ================= 通用 UI 函式 =================
     function createPreviewItem(file, container) {
         const div = document.createElement('div');
@@ -653,38 +522,59 @@
         item.addEventListener('dragend', function() { this.classList.remove('dragging'); });
     }
 
-    // ================= 拆分/圖片分割/轉檔 邏輯 (保留原功能) =================
-    // (為了節省篇幅，此處保留與上一版相同的關鍵邏輯，但為了確保完整運行，下方提供簡化版的核心功能函式)
+    // ================= 1. 合併邏輯 =================
+    const mergePreviewArea = document.getElementById('merge-preview-area');
+    function handleMergeFiles(files) {
+        if (!files.length) return;
+        Array.from(files).forEach(file => createPreviewItem(file, mergePreviewArea));
+        document.getElementById('mergeInput').value = '';
+    }
 
     async function generateMergedPDF() {
         const items = document.querySelectorAll('#merge-preview-area .preview-item');
         if (!items.length) { alert("請選擇檔案"); return; }
-        const pdfDoc = await PDFDocument.create();
-        const quality = parseFloat(document.getElementById('quality').value);
-        // ... (同前版邏輯)
-        // 為了確保功能正常，這裡重複關鍵代碼
-        for (let i = 0; i < items.length; i++) {
-            const file = items[i].fileData;
-            if (file.type === 'application/pdf') {
-                const srcPdf = await PDFDocument.load(await file.arrayBuffer());
-                (await pdfDoc.copyPages(srcPdf, srcPdf.getPageIndices())).forEach(p => pdfDoc.addPage(p));
-            } else {
-                const img = await loadImage(await readFileAsDataURL(file));
-                const { buffer, width, height } = await convertToJpegBuffer(img, quality);
-                const imgEmbed = await pdfDoc.embedJpg(buffer);
-                const mode = document.getElementById('pageSize').value;
-                const page = pdfDoc.addPage(mode==='a4' ? [595.28, 841.89] : [width, height]);
-                if(mode==='a4') {
-                    const dims = imgEmbed.scaleToFit(555, 800);
-                    page.drawImage(imgEmbed, {x: (595-dims.width)/2, y: (841-dims.height)/2, width: dims.width, height: dims.height});
+        
+        const btn = document.getElementById('convertBtn');
+        const status = document.getElementById('merge-status');
+        btn.disabled = true; status.innerText = "合併中...";
+
+        try {
+            const pdfDoc = await PDFDocument.create();
+            const quality = parseFloat(document.getElementById('quality').value);
+            const mode = document.getElementById('pageSize').value;
+
+            for (let i = 0; i < items.length; i++) {
+                const file = items[i].fileData;
+                status.innerText = `處理中: ${file.name}`;
+                
+                if (file.type === 'application/pdf') {
+                    const srcPdf = await PDFDocument.load(await file.arrayBuffer());
+                    (await pdfDoc.copyPages(srcPdf, srcPdf.getPageIndices())).forEach(p => pdfDoc.addPage(p));
                 } else {
-                    page.drawImage(imgEmbed, {x:0, y:0, width, height});
+                    const img = await loadImage(await readFileAsDataURL(file));
+                    const { buffer, width, height } = await convertToJpegBuffer(img, quality);
+                    const imgEmbed = await pdfDoc.embedJpg(buffer);
+                    
+                    const page = pdfDoc.addPage(mode==='a4' ? [595.28, 841.89] : [width, height]);
+                    if(mode==='a4') {
+                        const dims = imgEmbed.scaleToFit(555, 800);
+                        page.drawImage(imgEmbed, {x: (595-dims.width)/2, y: (841-dims.height)/2, width: dims.width, height: dims.height});
+                    } else {
+                        page.drawImage(imgEmbed, {x:0, y:0, width, height});
+                    }
                 }
             }
+            downloadBlob(new Blob([await pdfDoc.save()], {type:'application/pdf'}), 'merged.pdf');
+            status.innerText = "完成！";
+        } catch(e) {
+            console.error(e); alert("錯誤: " + e.message); status.innerText = "失敗";
+        } finally {
+            btn.disabled = false;
         }
-        downloadBlob(new Blob([await pdfDoc.save()], {type:'application/pdf'}), 'merged.pdf');
     }
 
+    // ================= 2. 拆分邏輯 =================
+    let currentSplitFile = null;
     async function handleSplitFileVisual(files) {
         if(!files.length) return;
         currentSplitFile = files[0];
@@ -694,12 +584,14 @@
         const pdf = await pdfjsLib.getDocument(buffer).promise;
         const container = document.getElementById('split-visual-area');
         container.innerHTML = '';
+        
         for(let i=1; i<=pdf.numPages; i++){
             const page = await pdf.getPage(i);
             const cvs = document.createElement('canvas');
             const vp = page.getViewport({scale:0.3});
             cvs.width=vp.width; cvs.height=vp.height;
             await page.render({canvasContext:cvs.getContext('2d'), viewport:vp}).promise;
+            
             const div = document.createElement('div');
             div.className='preview-item'; div.dataset.idx=i-1;
             const img = document.createElement('img'); img.src=cvs.toDataURL();
@@ -716,26 +608,37 @@
 
     async function executeSplitVisual() {
         const items = document.querySelectorAll('#split-visual-area .preview-item');
-        if(!items.length) return;
-        const indices = Array.from(items).map(i => parseInt(i.dataset.idx));
-        const srcPdf = await PDFDocument.load(await currentSplitFile.arrayBuffer());
-        const mode = document.getElementById('splitOutputMode').value;
-        if(mode === 'merge_remaining') {
-            const newPdf = await PDFDocument.create();
-            (await newPdf.copyPages(srcPdf, indices)).forEach(p => newPdf.addPage(p));
-            downloadBlob(new Blob([await newPdf.save()], {type:'application/pdf'}), 'edited.pdf');
-        } else {
-            const zip = new JSZip();
-            for(let i=0; i<indices.length; i++) {
+        if(!items.length) return alert('無剩餘頁面');
+        
+        const btn = document.getElementById('splitBtn');
+        btn.disabled = true; btn.innerText = "處理中...";
+        
+        try {
+            const indices = Array.from(items).map(i => parseInt(i.dataset.idx));
+            const srcPdf = await PDFDocument.load(await currentSplitFile.arrayBuffer());
+            const mode = document.getElementById('splitOutputMode').value;
+            
+            if(mode === 'merge_remaining') {
                 const newPdf = await PDFDocument.create();
-                (await newPdf.copyPages(srcPdf, [indices[i]])).forEach(p => newPdf.addPage(p));
-                zip.file(`page_${i+1}.pdf`, await newPdf.save());
+                (await newPdf.copyPages(srcPdf, indices)).forEach(p => newPdf.addPage(p));
+                downloadBlob(new Blob([await newPdf.save()], {type:'application/pdf'}), 'edited.pdf');
+            } else {
+                const zip = new JSZip();
+                for(let i=0; i<indices.length; i++) {
+                    const newPdf = await PDFDocument.create();
+                    (await newPdf.copyPages(srcPdf, [indices[i]])).forEach(p => newPdf.addPage(p));
+                    zip.file(`page_${i+1}.pdf`, await newPdf.save());
+                }
+                downloadBlob(await zip.generateAsync({type:'blob'}), 'split_pages.zip');
             }
-            downloadBlob(await zip.generateAsync({type:'blob'}), 'split_pages.zip');
+        } catch(e) {
+            alert("錯誤: " + e.message);
+        } finally {
+            btn.disabled = false; btn.innerText = "執行匯出";
         }
     }
 
-    // 圖片分割與轉檔功能請參考前版，為節省空間與避免重複，使用通用函式支援
+    // ================= 3. 圖片分割邏輯 (Image Split) =================
     const imgSplitArea = document.getElementById('img-split-preview-area');
     function handleImgSplitFiles(files) {
         if(files.length) Array.from(files).forEach(f => createPreviewItem(f, imgSplitArea));
@@ -744,46 +647,179 @@
     
     async function executeImageSplit() {
         const items = document.querySelectorAll('#img-split-preview-area .preview-item');
-        if(!items.length) return alert('請選圖');
-        const pdfDoc = await PDFDocument.create();
-        for(let i=0; i<items.length; i++) {
-            const img = await loadImage(await readFileAsDataURL(items[i].fileData));
-            const cvsL = document.createElement('canvas'), cvsR = document.createElement('canvas');
-            const w = Math.floor(img.width/2), h = img.height;
-            cvsL.width=w; cvsL.height=h; cvsR.width=w; cvsR.height=h;
-            cvsL.getContext('2d').drawImage(img,0,0,w,h,0,0,w,h);
-            cvsR.getContext('2d').drawImage(img,w,0,w,h,0,0,w,h);
+        const status = document.getElementById('img-split-status');
+        const btn = document.getElementById('imgSplitBtn');
+
+        if(!items.length) return alert('請先選擇圖片');
+        if(!PDFLib) return alert('核心庫未載入');
+
+        btn.disabled = true; btn.innerText = "處理中..."; status.innerText = "正在分割...";
+
+        try {
+            const pdfDoc = await PDFDocument.create();
+            const a4W = 595.28, a4H = 841.89, margin = 20;
+
+            for(let i=0; i<items.length; i++) {
+                const file = items[i].fileData;
+                status.innerText = `正在處理: ${file.name}`;
+
+                const img = await loadImage(await readFileAsDataURL(file));
+                const w = Math.floor(img.width/2), h = img.height;
+
+                // 左半邊 Canvas
+                const cvsL = document.createElement('canvas');
+                cvsL.width = w; cvsL.height = h;
+                cvsL.getContext('2d').drawImage(img, 0, 0, w, h, 0, 0, w, h);
+
+                // 右半邊 Canvas
+                const cvsR = document.createElement('canvas');
+                cvsR.width = w; cvsR.height = h;
+                cvsR.getContext('2d').drawImage(img, w, 0, w, h, 0, 0, w, h);
+                
+                // 轉 Blob -> ArrayBuffer
+                const blobL = await new Promise(r => cvsL.toBlob(r, 'image/jpeg', 0.9));
+                const blobR = await new Promise(r => cvsR.toBlob(r, 'image/jpeg', 0.9));
+                
+                const bufL = await blobL.arrayBuffer();
+                const bufR = await blobR.arrayBuffer();
+                
+                const iL = await pdfDoc.embedJpg(bufL);
+                const iR = await pdfDoc.embedJpg(bufR);
+                
+                // 決定順序
+                const dir = document.getElementById('splitDirection').value;
+                const list = dir === 'ltr' ? [iL, iR] : [iR, iL];
+                
+                list.forEach(im => {
+                    const p = pdfDoc.addPage([a4W, a4H]);
+                    const d = im.scaleToFit(a4W - margin*2, a4H - margin*2);
+                    p.drawImage(im, {
+                        x: (a4W - d.width)/2, 
+                        y: (a4H - d.height)/2, 
+                        width: d.width, 
+                        height: d.height
+                    });
+                });
+            }
             
-            const bufL = await new Promise(r=>cvsL.toBlob(b=>r(b.arrayBuffer()),'image/jpeg',0.9));
-            const bufR = await new Promise(r=>cvsR.toBlob(b=>r(b.arrayBuffer()),'image/jpeg',0.9));
-            const iL = await pdfDoc.embedJpg(bufL), iR = await pdfDoc.embedJpg(bufR);
-            
-            const list = document.getElementById('splitDirection').value === 'ltr' ? [iL, iR] : [iR, iL];
-            list.forEach(im => {
-                const p = pdfDoc.addPage([595.28, 841.89]);
-                const d = im.scaleToFit(555, 800);
-                p.drawImage(im, {x:(595-d.width)/2, y:(841-d.height)/2, width:d.width, height:d.height});
-            });
+            downloadBlob(new Blob([await pdfDoc.save()], {type:'application/pdf'}), 'split_images.pdf');
+            status.innerText = "完成！";
+        } catch(e) {
+            console.error(e);
+            alert("處理失敗: " + e.message);
+            status.innerText = "發生錯誤";
+        } finally {
+            btn.disabled = false; btn.innerText = "分割並轉換為 PDF";
         }
-        downloadBlob(new Blob([await pdfDoc.save()], {type:'application/pdf'}), 'split_images.pdf');
     }
 
-    function handleConvertFile(files) { if(files.length) { currentConvertFile=files[0]; document.getElementById('convert-file-name').innerText = files[0].name; document.getElementById('convert-file-name').style.display='block'; } }
+    // ================= 4. 轉圖片邏輯 =================
+    let currentConvertFile = null;
+    function handleConvertFile(files) { 
+        if(files.length) { 
+            currentConvertFile=files[0]; 
+            document.getElementById('convert-file-name').innerText = files[0].name; 
+            document.getElementById('convert-file-name').style.display='block'; 
+        } 
+    }
+    
     async function executePdfToImage() {
         if(!currentConvertFile) return;
-        const pdf = await pdfjsLib.getDocument(await currentConvertFile.arrayBuffer()).promise;
-        const zip = new JSZip();
-        for(let i=1; i<=pdf.numPages; i++) {
-            const p = await pdf.getPage(i);
-            const cvs = document.createElement('canvas');
-            const vp = p.getViewport({scale: parseFloat(document.getElementById('renderScale').value)});
-            cvs.width=vp.width; cvs.height=vp.height;
-            await p.render({canvasContext:cvs.getContext('2d'), viewport:vp}).promise;
-            const fmt = document.getElementById('outputFormat').value;
-            const blob = await new Promise(r=>cvs.toBlob(r, fmt==='jpeg'?'image/jpeg':'image/png', 0.9));
-            zip.file(`page_${i}.${fmt==='jpeg'?'jpg':'png'}`, blob);
+        const btn = document.getElementById('toImageBtn');
+        btn.disabled = true; btn.innerText = "處理中...";
+
+        try {
+            const pdf = await pdfjsLib.getDocument(await currentConvertFile.arrayBuffer()).promise;
+            const zip = new JSZip();
+            for(let i=1; i<=pdf.numPages; i++) {
+                const p = await pdf.getPage(i);
+                const vp = p.getViewport({scale: parseFloat(document.getElementById('renderScale').value)});
+                const cvs = document.createElement('canvas');
+                cvs.width=vp.width; cvs.height=vp.height;
+                await p.render({canvasContext:cvs.getContext('2d'), viewport:vp}).promise;
+                
+                const fmt = document.getElementById('outputFormat').value;
+                const blob = await new Promise(r=>cvs.toBlob(r, fmt==='jpeg'?'image/jpeg':'image/png', 0.9));
+                zip.file(`page_${i}.${fmt==='jpeg'?'jpg':'png'}`, blob);
+            }
+            downloadBlob(await zip.generateAsync({type:'blob'}), 'images.zip');
+        } catch(e) {
+            alert("錯誤: " + e.message);
+        } finally {
+            btn.disabled = false; btn.innerText = "轉圖並下載";
         }
-        downloadBlob(await zip.generateAsync({type:'blob'}), 'images.zip');
+    }
+
+    // ================= 5. 智能壓縮邏輯 =================
+    const compressFileList = document.getElementById('compress-file-list');
+    function handleCompressFiles(files) {
+        if(!files.length) return;
+        Array.from(files).forEach(file => createPreviewItem(file, compressFileList));
+        document.getElementById('compressInput').value = '';
+    }
+
+    async function executeSmartCompress() {
+        const items = document.querySelectorAll('#compress-file-list .preview-item');
+        const status = document.getElementById('compress-status');
+        const btn = document.getElementById('compressBtn');
+        const targetMB = parseFloat(document.getElementById('targetSizeMB').value);
+        
+        if (!items.length) return alert("請選檔");
+        
+        const targetBytes = targetMB * 1024 * 1024;
+        btn.disabled = true; btn.innerText = "分析中...";
+        
+        try {
+            let allPagesData = [];
+            for (let i = 0; i < items.length; i++) {
+                const file = items[i].fileData;
+                status.innerText = `讀取: ${file.name}`;
+                if (file.type === 'application/pdf') {
+                    const buffer = await file.arrayBuffer();
+                    const pdf = await pdfjsLib.getDocument(buffer).promise;
+                    for (let p = 1; p <= pdf.numPages; p++) {
+                        const page = await pdf.getPage(p);
+                        const viewport = page.getViewport({ scale: 1.5 });
+                        const canvas = document.createElement('canvas');
+                        canvas.width = viewport.width; canvas.height = viewport.height;
+                        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                        allPagesData.push(await loadImage(canvas.toDataURL()));
+                    }
+                } else {
+                    allPagesData.push(await loadImage(await readFileAsDataURL(file)));
+                }
+            }
+
+            status.innerText = "開始壓縮...";
+            let quality = 0.8, pdfBytes = null, attempts = 0;
+            
+            while (attempts < 4) {
+                attempts++;
+                const pdfDoc = await PDFDocument.create();
+                let currentSize = 0;
+                
+                // 簡易估算與生成
+                for (const img of allPagesData) {
+                    const { buffer } = await convertToJpegBuffer(img, quality);
+                    const embed = await pdfDoc.embedJpg(buffer);
+                    const p = pdfDoc.addPage([img.width, img.height]);
+                    p.drawImage(embed, {x:0, y:0, width:img.width, height:img.height});
+                }
+                
+                pdfBytes = await pdfDoc.save();
+                if (pdfBytes.byteLength <= targetBytes) break;
+                
+                quality *= 0.8; // 沒過關就降品質
+                if (quality < 0.1) quality = 0.1;
+            }
+
+            downloadBlob(new Blob([pdfBytes], { type: 'application/pdf' }), `compressed_${targetMB}MB.pdf`);
+            status.innerText = "完成！";
+        } catch (e) {
+            console.error(e); alert("錯誤: " + e.message);
+        } finally {
+            btn.disabled = false; btn.innerText = "開始智能壓縮";
+        }
     }
 
     // --- 輔助 ---
