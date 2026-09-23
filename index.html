@@ -256,6 +256,155 @@
             font-size: 0.9rem;
             text-align: left;
         }
+
+        /* ================= 6. 編輯文字專用樣式 ================= */
+        .edit-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .tool-btn {
+            background: white;
+            border: 1px solid #ced4da;
+            border-radius: 5px;
+            padding: 6px 12px;
+            font-size: 0.88rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 500;
+        }
+
+        .tool-btn:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .tool-btn.active-tool {
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+
+        .tool-btn.btn-danger {
+            color: #dc3545;
+            border-color: #f5c6cb;
+        }
+
+        .tool-btn.btn-danger:hover {
+            background: #dc3545;
+            color: white;
+        }
+
+        .edit-workspace {
+            position: relative;
+            max-height: 650px;
+            overflow: auto;
+            background: #525659;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .edit-page-wrapper {
+            position: relative;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.35);
+            background: white;
+            line-height: 0;
+            user-select: none;
+            display: inline-block;
+        }
+
+        .edit-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+        }
+
+        .pdf-detected-text {
+            position: absolute;
+            box-sizing: border-box;
+            cursor: text;
+            border: 1px dashed transparent;
+            transition: border-color 0.15s, background-color 0.15s;
+            user-select: text;
+            overflow: visible;
+            white-space: pre;
+            line-height: 1;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, 'Noto Sans TC', sans-serif;
+        }
+
+        .pdf-detected-text:hover {
+            border-color: #007bff;
+            background-color: rgba(0, 123, 255, 0.12);
+        }
+
+        .pdf-detected-text.editing {
+            border: 1.5px solid #007bff !important;
+            background: white !important;
+            box-shadow: 0 2px 8px rgba(0, 123, 255, 0.35);
+            z-index: 100;
+            outline: none;
+        }
+
+        .pdf-detected-text.has-edited {
+            background: white;
+            border: 1px solid #28a745;
+            z-index: 10;
+        }
+
+        .pdf-detected-text.is-deleted {
+            background: white !important;
+            border: 1px dashed #dc3545 !important;
+            opacity: 0.85;
+        }
+
+        .pdf-detected-text.is-deleted::after {
+            content: ' [已刪除]';
+            color: #dc3545;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        .pdf-custom-text {
+            position: absolute;
+            box-sizing: border-box;
+            cursor: move;
+            border: 1.5px solid #007bff;
+            background: white;
+            padding: 2px 6px;
+            box-shadow: 0 2px 8px rgba(0, 123, 255, 0.25);
+            z-index: 50;
+            min-width: 40px;
+            min-height: 24px;
+            white-space: pre-wrap;
+            user-select: text;
+        }
+
+        .pdf-custom-text.selected {
+            border-color: #28a745;
+            box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.25);
+        }
     </style>
 </head>
 <body>
@@ -270,6 +419,7 @@
         <button class="tab-btn" onclick="switchTab('img-split')">3. 分割圖片</button>
         <button class="tab-btn" onclick="switchTab('convert')">4. 轉圖片</button>
         <button class="tab-btn" onclick="switchTab('compress')">5. 智能壓縮 (指定大小)</button>
+        <button class="tab-btn" onclick="switchTab('edit')">6. 編輯文字</button>
     </div>
 
     <!-- ================= 1. 合併模式 ================= -->
@@ -419,6 +569,65 @@
         <div id="compress-status" class="status-msg"></div>
     </div>
 
+    <!-- ================= 6. 編輯文字模式 ================= -->
+    <div id="edit-view" class="view-section">
+        <div class="input-group" id="edit-input-group">
+            <label for="editInput" class="custom-file-label">
+                ✏️ 選擇單個 PDF 進行文字編輯<br>
+                <span>(點選現有文字原地修改/刪除，或任意位置加字)</span>
+            </label>
+            <input type="file" id="editInput" accept=".pdf" onchange="handleEditFile(this.files)">
+        </div>
+        
+        <div id="edit-file-name" class="selected-file-name"></div>
+
+        <div id="edit-editor-container" style="display: none;">
+            <div class="split-hint">
+                💡 <strong>操作說明</strong>：<br>
+                1. <strong>改字/刪除</strong>：滑鼠移至文件原有文字上會出現<strong>藍色選框</strong>，點擊即可像 Word 一樣原地輸入修改；若將字元完全清空，輸出時將自動以白底擦除。<br>
+                2. <strong>加字</strong>：點擊「➕ 新增文字」模式後，在頁面任意空白處點擊即可新增可拖曳的自訂文字框。<br>
+                3. <strong>繁體中文完整支援</strong>：修改文字均以高解析向量合成，不失真也不遺漏字元。
+            </div>
+
+            <div class="edit-toolbar">
+                <div class="toolbar-group">
+                    <button class="tool-btn" onclick="changeEditPage(-1)">◀ 上一頁</button>
+                    <span id="edit-page-indicator" style="font-weight: bold; margin: 0 8px; color: #333;">第 1 / 1 頁</span>
+                    <button class="tool-btn" onclick="changeEditPage(1)">下一頁 ▶</button>
+                </div>
+
+                <div class="toolbar-group">
+                    <button class="tool-btn active-tool" id="btn-mode-select" onclick="setEditMode('select')">🔍 原地改字/刪字</button>
+                    <button class="tool-btn" id="btn-mode-add" onclick="setEditMode('add')">➕ 新增文字框</button>
+                </div>
+
+                <div class="toolbar-group">
+                    <label style="font-size: 0.9rem;">字級：</label>
+                    <input type="number" id="edit-font-size" value="16" min="8" max="72" style="width: 55px; padding: 4px;" onchange="updateActiveItemStyle()">
+                    <label style="font-size: 0.9rem; margin-left: 6px;">顏色：</label>
+                    <input type="color" id="edit-font-color" value="#000000" style="width: 38px; height: 30px; padding: 1px; cursor: pointer;" onchange="updateActiveItemStyle()">
+                    <label style="font-size: 0.88rem; margin-left: 6px; cursor: pointer;" title="修改時以白底遮蓋原始文字"><input type="checkbox" id="edit-whiteout" checked onchange="updateActiveItemStyle()"> 白底擦除</label>
+                </div>
+
+                <div class="toolbar-group">
+                    <button class="tool-btn btn-danger" onclick="deleteActiveItem()" title="刪除選取的自訂文字框">🗑️ 刪除框</button>
+                    <button class="tool-btn" onclick="resetCurrentPageEdits()" title="復原本頁所有修改">↩️ 復原本頁</button>
+                </div>
+            </div>
+
+            <div id="edit-workspace" class="edit-workspace">
+                <div id="edit-page-wrapper" class="edit-page-wrapper">
+                    <canvas id="edit-canvas"></canvas>
+                    <div id="edit-overlay" class="edit-overlay" onclick="handleOverlayClick(event)"></div>
+                </div>
+            </div>
+
+            <button id="saveEditBtn" class="action-btn" onclick="executeSaveEditedPDF()">儲存並下載已編輯 PDF</button>
+            <button class="action-btn" style="background-color: #6c757d; margin-top: 10px;" onclick="resetEditView()">更換檔案</button>
+            <div id="edit-status" class="status-msg"></div>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -437,12 +646,13 @@
         document.querySelectorAll('.view-section').forEach(view => view.classList.remove('active'));
         
         const tabs = document.querySelectorAll('.tab-btn');
-        const views = ['merge-view', 'split-view', 'img-split-view', 'convert-view', 'compress-view'];
+        const views = ['merge-view', 'split-view', 'img-split-view', 'convert-view', 'compress-view', 'edit-view'];
         let idx = 0;
         if(mode === 'split') idx=1;
         if(mode === 'img-split') idx=2;
         if(mode === 'convert') idx=3;
         if(mode === 'compress') idx=4;
+        if(mode === 'edit') idx=5;
 
         tabs[idx].classList.add('active');
         document.getElementById(views[idx]).classList.add('active');
@@ -455,6 +665,7 @@
         setupDragAndDrop('img-split-input-group', handleImgSplitFiles);
         setupDragAndDrop('convert-input-group', handleConvertFile);
         setupDragAndDrop('compress-input-group', handleCompressFiles);
+        setupDragAndDrop('edit-input-group', handleEditFile);
     }
 
     function setupDragAndDrop(areaId, handler) {
@@ -833,6 +1044,480 @@
         });
     }
     function downloadBlob(blob, name) { const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
+
+    // ================= 6. 原地編輯文字邏輯 =================
+    let currentEditFile = null;
+    let editPdfDoc = null;
+    let currentEditPageIndex = 1;
+    let editMode = 'select'; // 'select' | 'add'
+    let activeEditItem = null;
+    let pageEditsStore = {};
+
+    async function handleEditFile(files) {
+        if (!files.length) return;
+        currentEditFile = files[0];
+        document.getElementById('edit-file-name').innerText = currentEditFile.name;
+        document.getElementById('edit-file-name').style.display = 'block';
+        document.getElementById('edit-input-group').style.display = 'none';
+        document.getElementById('edit-editor-container').style.display = 'block';
+
+        const status = document.getElementById('edit-status');
+        status.innerText = '載入 PDF 中...';
+
+        try {
+            const buffer = await currentEditFile.arrayBuffer();
+            editPdfDoc = await pdfjsLib.getDocument(buffer).promise;
+            pageEditsStore = {};
+            currentEditPageIndex = 1;
+            status.innerText = '';
+            await renderEditPage(currentEditPageIndex);
+        } catch (e) {
+            console.error(e);
+            alert('載入 PDF 失敗: ' + e.message);
+            status.innerText = '載入失敗';
+        }
+    }
+
+    function resetEditView() {
+        document.getElementById('edit-input-group').style.display = 'block';
+        document.getElementById('edit-editor-container').style.display = 'none';
+        document.getElementById('edit-file-name').style.display = 'none';
+        document.getElementById('editInput').value = '';
+        currentEditFile = null;
+        editPdfDoc = null;
+        pageEditsStore = {};
+    }
+
+    function setEditMode(mode) {
+        editMode = mode;
+        document.getElementById('btn-mode-select').classList.toggle('active-tool', mode === 'select');
+        document.getElementById('btn-mode-add').classList.toggle('active-tool', mode === 'add');
+        const overlay = document.getElementById('edit-overlay');
+        if (overlay) {
+            overlay.style.cursor = (mode === 'add') ? 'crosshair' : 'default';
+        }
+    }
+
+    async function changeEditPage(delta) {
+        if (!editPdfDoc) return;
+        const targetPage = currentEditPageIndex + delta;
+        if (targetPage >= 1 && targetPage <= editPdfDoc.numPages) {
+            currentEditPageIndex = targetPage;
+            await renderEditPage(currentEditPageIndex);
+        }
+    }
+
+    async function renderEditPage(pageIdx) {
+        if (!editPdfDoc) return;
+        document.getElementById('edit-page-indicator').innerText = `第 ${pageIdx} / ${editPdfDoc.numPages} 頁`;
+
+        const page = await editPdfDoc.getPage(pageIdx);
+        const viewport = page.getViewport({ scale: 1.5 });
+        const canvas = document.getElementById('edit-canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        canvas.style.width = viewport.width + 'px';
+        canvas.style.height = viewport.height + 'px';
+
+        const wrapper = document.getElementById('edit-page-wrapper');
+        wrapper.style.width = viewport.width + 'px';
+        wrapper.style.height = viewport.height + 'px';
+
+        const overlay = document.getElementById('edit-overlay');
+        overlay.innerHTML = '';
+        activeEditItem = null;
+
+        await page.render({ canvasContext: ctx, viewport }).promise;
+
+        if (!pageEditsStore[pageIdx]) {
+            pageEditsStore[pageIdx] = [];
+        }
+
+        const textContent = await page.getTextContent();
+        let itemIndex = 0;
+
+        for (const item of textContent.items) {
+            if (!item.str || !item.str.trim()) continue;
+
+            const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+            const fontHeight = Math.hypot(tx[2], tx[3]);
+            const left = tx[4];
+            const top = tx[5] - fontHeight;
+            const width = Math.max(item.width * viewport.scale, 10);
+            const height = Math.max(fontHeight, 12);
+            const id = `page_${pageIdx}_item_${itemIndex++}`;
+
+            let editRecord = pageEditsStore[pageIdx].find(e => e.id === id);
+
+            const div = document.createElement('div');
+            div.className = 'pdf-detected-text';
+            div.id = id;
+            div.style.left = left + 'px';
+            div.style.top = top + 'px';
+            div.style.width = width + 'px';
+            div.style.height = height + 'px';
+            div.style.fontSize = Math.round(fontHeight) + 'px';
+            div.style.lineHeight = height + 'px';
+            div.style.color = '#000000';
+
+            if (editRecord) {
+                if (editRecord.isDeleted) {
+                    div.classList.add('is-deleted');
+                    div.innerText = '';
+                } else {
+                    div.classList.add('has-edited');
+                    div.innerText = editRecord.newText;
+                    div.style.fontSize = editRecord.fontSize + 'px';
+                    div.style.color = editRecord.fontColor;
+                }
+            } else {
+                div.innerText = item.str;
+            }
+
+            div.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (editMode !== 'select') return;
+                startEditingText(div, {
+                    id,
+                    type: 'detected',
+                    originalStr: item.str,
+                    originalRect: { left, top, width, height },
+                    pageWidth: viewport.width,
+                    pageHeight: viewport.height,
+                    fontSize: Math.round(fontHeight),
+                    fontColor: '#000000',
+                    bgWhiteout: true
+                });
+            });
+
+            overlay.appendChild(div);
+        }
+
+        pageEditsStore[pageIdx].filter(e => e.type === 'custom').forEach(record => {
+            createCustomTextDOM(record);
+        });
+    }
+
+    function startEditingText(div, metadata) {
+        if (activeEditItem && activeEditItem.dom !== div) {
+            commitTextEdit();
+        }
+
+        activeEditItem = { dom: div, meta: metadata };
+        div.classList.add('editing');
+        div.contentEditable = 'true';
+        div.focus();
+
+        const currentFontSize = parseInt(div.style.fontSize) || metadata.fontSize || 16;
+        document.getElementById('edit-font-size').value = currentFontSize;
+        
+        const range = document.createRange();
+        range.selectNodeContents(div);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        div.onblur = () => {
+            commitTextEdit();
+        };
+
+        div.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                div.blur();
+            }
+        };
+    }
+
+    function commitTextEdit() {
+        if (!activeEditItem) return;
+        const { dom, meta } = activeEditItem;
+        dom.contentEditable = 'false';
+        dom.classList.remove('editing');
+
+        const newText = dom.innerText;
+        const pageIdx = currentEditPageIndex;
+        let record = pageEditsStore[pageIdx].find(e => e.id === meta.id);
+
+        const currentFontSize = parseInt(document.getElementById('edit-font-size').value) || meta.fontSize || 16;
+        const currentFontColor = document.getElementById('edit-font-color').value || '#000000';
+        const whiteout = document.getElementById('edit-whiteout').checked;
+
+        if (meta.type === 'detected') {
+            if (newText.trim() === '') {
+                dom.classList.remove('has-edited');
+                dom.classList.add('is-deleted');
+                if (!record) {
+                    record = { ...meta, newText: '', fontSize: currentFontSize, fontColor: currentFontColor, bgWhiteout: whiteout, isDeleted: true };
+                    pageEditsStore[pageIdx].push(record);
+                } else {
+                    record.newText = '';
+                    record.isDeleted = true;
+                    record.bgWhiteout = whiteout;
+                }
+            } else if (newText !== meta.originalStr) {
+                dom.classList.remove('is-deleted');
+                dom.classList.add('has-edited');
+                dom.style.fontSize = currentFontSize + 'px';
+                dom.style.color = currentFontColor;
+                if (!record) {
+                    record = { ...meta, newText, fontSize: currentFontSize, fontColor: currentFontColor, bgWhiteout: whiteout, isDeleted: false };
+                    pageEditsStore[pageIdx].push(record);
+                } else {
+                    record.newText = newText;
+                    record.fontSize = currentFontSize;
+                    record.fontColor = currentFontColor;
+                    record.bgWhiteout = whiteout;
+                    record.isDeleted = false;
+                }
+            }
+        } else if (meta.type === 'custom') {
+            if (record) {
+                record.newText = newText;
+                record.fontSize = currentFontSize;
+                record.fontColor = currentFontColor;
+                record.bgWhiteout = whiteout;
+                record.currentRect = {
+                    left: parseFloat(dom.style.left),
+                    top: parseFloat(dom.style.top),
+                    width: dom.offsetWidth,
+                    height: dom.offsetHeight
+                };
+            }
+        }
+
+        activeEditItem = null;
+    }
+
+    function handleOverlayClick(e) {
+        if (editMode === 'add') {
+            const rect = document.getElementById('edit-overlay').getBoundingClientRect();
+            const left = e.clientX - rect.left;
+            const top = e.clientY - rect.top;
+            addCustomTextBox(left, top);
+            setEditMode('select');
+        } else {
+            if (activeEditItem) commitTextEdit();
+        }
+    }
+
+    function addCustomTextBox(left, top) {
+        const pageIdx = currentEditPageIndex;
+        const id = `custom_${Date.now()}`;
+        const fontSize = parseInt(document.getElementById('edit-font-size').value) || 16;
+        const fontColor = document.getElementById('edit-font-color').value || '#000000';
+        const whiteout = document.getElementById('edit-whiteout').checked;
+
+        const record = {
+            id,
+            type: 'custom',
+            newText: '點此輸入文字',
+            currentRect: { left, top, width: 120, height: 30 },
+            pageWidth: parseFloat(document.getElementById('edit-page-wrapper').style.width),
+            pageHeight: parseFloat(document.getElementById('edit-page-wrapper').style.height),
+            fontSize,
+            fontColor,
+            bgWhiteout: whiteout,
+            isDeleted: false
+        };
+
+        if (!pageEditsStore[pageIdx]) pageEditsStore[pageIdx] = [];
+        pageEditsStore[pageIdx].push(record);
+        createCustomTextDOM(record);
+    }
+
+    function createCustomTextDOM(record) {
+        const overlay = document.getElementById('edit-overlay');
+        const div = document.createElement('div');
+        div.className = 'pdf-custom-text';
+        div.id = record.id;
+        div.style.left = record.currentRect.left + 'px';
+        div.style.top = record.currentRect.top + 'px';
+        div.style.fontSize = record.fontSize + 'px';
+        div.style.color = record.fontColor;
+        div.innerText = record.newText;
+
+        let isDragging = false, startX, startY, origLeft, origTop;
+        div.addEventListener('mousedown', (e) => {
+            if (div.contentEditable === 'true') return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            origLeft = parseFloat(div.style.left);
+            origTop = parseFloat(div.style.top);
+            document.querySelectorAll('.pdf-custom-text').forEach(el => el.classList.remove('selected'));
+            div.classList.add('selected');
+            activeEditItem = { dom: div, meta: record };
+
+            const onMouseMove = (ev) => {
+                if (!isDragging) return;
+                const nl = Math.max(0, origLeft + (ev.clientX - startX));
+                const nt = Math.max(0, origTop + (ev.clientY - startY));
+                div.style.left = nl + 'px';
+                div.style.top = nt + 'px';
+                record.currentRect.left = nl;
+                record.currentRect.top = nt;
+            };
+
+            const onMouseUp = () => {
+                isDragging = false;
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+
+        div.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            startEditingText(div, record);
+        });
+
+        overlay.appendChild(div);
+    }
+
+    function updateActiveItemStyle() {
+        const fontSize = parseInt(document.getElementById('edit-font-size').value) || 16;
+        const fontColor = document.getElementById('edit-font-color').value || '#000000';
+        const whiteout = document.getElementById('edit-whiteout').checked;
+
+        if (activeEditItem && activeEditItem.dom) {
+            activeEditItem.dom.style.fontSize = fontSize + 'px';
+            activeEditItem.dom.style.color = fontColor;
+            if (activeEditItem.meta) {
+                activeEditItem.meta.fontSize = fontSize;
+                activeEditItem.meta.fontColor = fontColor;
+                activeEditItem.meta.bgWhiteout = whiteout;
+            }
+        }
+    }
+
+    function deleteActiveItem() {
+        if (!activeEditItem) return alert('請先點選要刪除的文字框');
+        const { dom, meta } = activeEditItem;
+        const pageIdx = currentEditPageIndex;
+
+        if (meta.type === 'custom') {
+            dom.remove();
+            pageEditsStore[pageIdx] = pageEditsStore[pageIdx].filter(e => e.id !== meta.id);
+            activeEditItem = null;
+        } else if (meta.type === 'detected') {
+            dom.innerText = '';
+            commitTextEdit();
+        }
+    }
+
+    function resetCurrentPageEdits() {
+        if (!confirm('確定要放棄此頁所有編輯修改嗎？')) return;
+        pageEditsStore[currentEditPageIndex] = [];
+        renderEditPage(currentEditPageIndex);
+    }
+
+    async function executeSaveEditedPDF() {
+        if (!currentEditFile) return alert('請先選擇 PDF 檔案');
+        
+        if (activeEditItem) commitTextEdit();
+
+        const btn = document.getElementById('saveEditBtn');
+        const status = document.getElementById('edit-status');
+        btn.disabled = true;
+        btn.innerText = '合成與儲存中...';
+        status.innerText = '正在將修改內容嵌入 PDF...';
+
+        try {
+            const srcBytes = await currentEditFile.arrayBuffer();
+            const pdfDoc = await PDFLib.PDFDocument.load(srcBytes);
+
+            for (let p = 1; p <= pdfDoc.getPageCount(); p++) {
+                const edits = pageEditsStore[p];
+                if (!edits || !edits.length) continue;
+
+                const pdfPage = pdfDoc.getPage(p - 1);
+                const { width: pdfWidth, height: pdfHeight } = pdfPage.getSize();
+
+                for (const item of edits) {
+                    const scaleX = pdfWidth / item.pageWidth;
+                    const scaleY = pdfHeight / item.pageHeight;
+
+                    // 1. 白底遮罩（擦除舊字）
+                    if (item.bgWhiteout && item.originalRect) {
+                        const rectL = item.originalRect.left * scaleX;
+                        const rectW = Math.max(item.originalRect.width * scaleX, 4);
+                        const rectH = Math.max(item.originalRect.height * scaleY, 4);
+                        const rectY = pdfHeight - (item.originalRect.top * scaleY) - rectH;
+
+                        pdfPage.drawRectangle({
+                            x: Math.max(0, rectL - 1),
+                            y: Math.max(0, rectY - 1),
+                            width: rectW + 2,
+                            height: rectH + 2,
+                            color: PDFLib.rgb(1, 1, 1),
+                        });
+                    }
+
+                    // 2. 寫入新文字（Canvas 高解析 Stamp 渲染，完整支援中文）
+                    if (!item.isDeleted && item.newText && item.newText.trim()) {
+                        const scaleFactor = 3;
+                        const textCvs = document.createElement('canvas');
+                        const textCtx = textCvs.getContext('2d');
+                        const fontPx = (item.fontSize || 16) * scaleFactor;
+
+                        textCtx.font = `bold ${fontPx}px "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", sans-serif`;
+                        const metrics = textCtx.measureText(item.newText);
+                        const tWidth = Math.ceil(metrics.width) + 8 * scaleFactor;
+                        const tHeight = Math.ceil(fontPx * 1.35) + 4 * scaleFactor;
+
+                        textCvs.width = Math.max(tWidth, 10);
+                        textCvs.height = Math.max(tHeight, 10);
+
+                        if (item.type === 'custom' && item.bgWhiteout) {
+                            textCtx.fillStyle = '#FFFFFF';
+                            textCtx.fillRect(0, 0, textCvs.width, textCvs.height);
+                        }
+
+                        textCtx.font = `bold ${fontPx}px "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", sans-serif`;
+                        textCtx.fillStyle = item.fontColor || '#000000';
+                        textCtx.textBaseline = 'top';
+                        textCtx.fillText(item.newText, 4 * scaleFactor, 2 * scaleFactor);
+
+                        const pngBlob = await new Promise(r => textCvs.toBlob(r, 'image/png'));
+                        const pngBuf = await pngBlob.arrayBuffer();
+                        const pngImg = await pdfDoc.embedPng(pngBuf);
+
+                        const targetLeft = item.type === 'custom' ? item.currentRect.left : item.originalRect.left;
+                        const targetTop = item.type === 'custom' ? item.currentRect.top : item.originalRect.top;
+
+                        const drawX = targetLeft * scaleX;
+                        const drawW = (textCvs.width / scaleFactor) * scaleX;
+                        const drawH = (textCvs.height / scaleFactor) * scaleY;
+                        const drawY = pdfHeight - (targetTop * scaleY) - drawH;
+
+                        pdfPage.drawImage(pngImg, {
+                            x: drawX,
+                            y: drawY,
+                            width: drawW,
+                            height: drawH
+                        });
+                    }
+                }
+            }
+
+            const finalBytes = await pdfDoc.save();
+            downloadBlob(new Blob([finalBytes], { type: 'application/pdf' }), `edited_${currentEditFile.name}`);
+            status.innerText = '完成！已下載編輯後檔案。';
+        } catch (e) {
+            console.error(e);
+            alert('匯出 PDF 失敗: ' + e.message);
+            status.innerText = '匯出失敗';
+        } finally {
+            btn.disabled = false;
+            btn.innerText = '儲存並下載已編輯 PDF';
+        }
+    }
+
 </script>
 </body>
 </html>
